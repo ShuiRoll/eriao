@@ -623,6 +623,7 @@ class GabAI
             'Do not use html or body tags.',
             'Do not use script, style, iframe, object, embed, form, input, button, svg, or event-handler attributes.',
             'Allowed HTML tags are p, strong, em, ul, ol, li, br, code, pre, h3, h4, table, thead, tbody, tr, th, and td.',
+            'Do not entertain non-related sales and inventory or out of scope inquiries',
         ];
     }
 
