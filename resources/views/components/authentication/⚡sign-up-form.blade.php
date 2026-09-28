@@ -18,15 +18,34 @@ new class extends Component
             'password' => 'required'
         ]);
 
-        User::create([
-            'first_name' => $this->firstName,
-            'last_name' => $this->lastName,
-            'email' => $this->emailAddress,
-            'password' => $this->password,
-        ]);
+        try {
+            $user = User::create([
+                'first_name' => $this->firstName,
+                'last_name' => $this->lastName,
+                'email' => $this->emailAddress,
+                'password' => $this->password,
+            ]);
+        } catch(Exception $e) {
+            $this->dispatch('wirekit-toast',
+                variant: 'danger',
+                title: 'Unknown Error',
+                message: 'Please contact your system administrator and report this error.',
+            );
+
+            return;
+        }
 
         if(Auth::attempt(['email' => $this->emailAddress, 'password' => $this->password])) {
-            $this->redirect('/dashboard');
+            $this->dispatch('wirekit-toast',
+                variant: 'success',
+                title: 'Account Created',
+                message: 'Please contact your system administrator to activate your account.',
+            );
+
+            $this->firstName = '';
+            $this->lastName = '';
+            $this->emailAddress = '';
+            $this->password = '';
         } else {
             $this->addError('password', 'An unknown error occured');
         }

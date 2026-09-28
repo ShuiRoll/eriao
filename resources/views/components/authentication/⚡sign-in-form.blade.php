@@ -14,7 +14,23 @@ new class extends Component
         ]);
 
         if(Auth::attempt(['email' => $this->emailAddress, 'password' => $this->password])) {
-            $this->redirect('/dashboard');
+            if(Auth::user()->status == 'active') {
+                if(Auth::user()->role == 'admin') {
+                    $this->redirect('/admin/dashboard');
+                } else if(Auth::user()->role == 'employee') {
+                    $this->redirect('/employee/dashboard');
+                } else if(Auth::user()->role == 'cashier') {
+                    $this->redirect('/cashier/dashboard');
+                } else if(Auth::user()->role == 'staff') {
+                    $this->redirect('/staff/dashboard');
+                }
+            } else {
+                $this->dispatch('wirekit-toast',
+                    variant: 'danger',
+                    title: 'Account is Not Activated',
+                    message: 'Please contact your system administrator to activate your account.',
+                );
+            }
         } else {
             $this->addError('password', 'Incorrect email address or password.');
         }

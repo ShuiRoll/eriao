@@ -92,7 +92,7 @@ new class extends Component
 
         <div class="grid grid-cols-2 gap-4 mt-8">
             <flux:button wire:click='onClose' variant="ghost">Cancel</flux:button>
-            <flux:button wire:click='onSave' variant="primary">Save</flux:button>
+            <flux:button wire:click='onSave' variant="primary" class="bg-primary hover:bg-primary">Save</flux:button>
         </div>
     </div>
 </flux:modal>

@@ -51,6 +51,8 @@ new class extends Component
         <flux:modal.trigger name="new-user">
             <flux:button
                 variant="primary"
+                icon="plus"
+                class="bg-primary hover:bg-primary"
             >
                 New User
             </flux:button>

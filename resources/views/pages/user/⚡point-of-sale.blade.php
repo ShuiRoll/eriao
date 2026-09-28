@@ -617,7 +617,7 @@ new class extends Component
                                 <flux:icon
                                     name="plus-circle"
                                     variant="mini"
-                                    class="transition group-hover:scale-110"
+                                    class="transition group-hover:scale-110 text-primary"
                                 />
                             </div>
                         </div>
@@ -815,7 +815,7 @@ new class extends Component
             <flux:modal.trigger name="checkout">
                 <flux:button
                     variant="primary"
-                    class="w-full"
+                    class="w-full bg-primary hover:bg-primary"
                     icon="credit-card"
                     x-bind:disabled="cart.length === 0"
                 >
@@ -1131,6 +1131,7 @@ new class extends Component
                 <flux:button
                     variant="primary"
                     icon="check"
+                    class="bg-primary hover:bg-primary"
                     x-on:click="processCheckout()"
                     x-bind:disabled="
                         processing ||
