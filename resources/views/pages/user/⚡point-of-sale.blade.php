@@ -200,7 +200,45 @@ new class extends Component
         discount_type: 'fixed',
         tax: 0,
         cash: 0,
-        notes:
+        notes: '',
+        processing: false,
+
+        get filteredProducts() {
+            return this.products.filter(product => {
+                const query = this.search.toLowerCase().trim();
+
+                const matchesSearch =
+                    !query ||
+                    product.name.toLowerCase().includes(query) ||
+                    product.category.toLowerCase().includes(query);
+
+                const matchesCategory =
+                    this.category === 'all' ||
+                    String(product.category_id) === String(this.category);
+
+                return matchesSearch && matchesCategory;
+            });
+        },
+
+        get subtotal() {
+            return this.cart.reduce((total, item) => {
+                return total + (item.price * item.quantity);
+            }, 0);
+        },
+
+        get discountAmount() {
+            const value = Number(this.discount_value) || 0;
+
+            if (this.discount_type === 'percentage') {
+                return Math.min(
+                    this.subtotal,
+                    this.subtotal * (value / 100)
+                );
+            }
+
+            return Math.min(this.subtotal, value);
+        },
+
         get taxAmount() {
             const value = Number(this.tax) || 0;
 
