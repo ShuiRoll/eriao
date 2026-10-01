@@ -6,6 +6,7 @@ use Livewire\Attributes\Renderless;
 use App\Models\ProductItem;
 use App\Models\ProductCategories;
 use App\Models\PurchaseOrderItems;
+use Illuminate\Support\Facades\DB;
 use Flux\Flux;
 
 new class extends Component
@@ -13,6 +14,12 @@ new class extends Component
     public $productItems;
 
     public $categories;
+
+    public string $search = '';
+
+    public string $categoryFilter = 'all';
+
+    public string $stockFilter = 'all';
 
     public ?int $selectedProductId = null;
 
@@ -25,6 +32,14 @@ new class extends Component
     public $productQuantity = 0;
 
     public $productMax = 0;
+
+    public $productReorderLevel = 0;
+
+    public $productFrontQuantity = 0;
+
+    public $productMoveToWarehouse = 0;
+
+    public $productDefectiveQuantity = 0;
 
     public string $productStatus = 'available';
 
@@ -47,8 +62,44 @@ new class extends Component
                 'product_items.*',
                 'product_categories.name as product_category_name',
             ])
+            ->when(trim($this->search) !== '', function ($query) {
+                $search = '%' . trim($this->search) . '%';
+
+                $query->where(function ($query) use ($search) {
+                    $query->where('product_items.name', 'like', $search)
+                        ->orWhere('product_categories.name', 'like', $search);
+                });
+            })
+            ->when($this->categoryFilter !== 'all', fn ($query) =>
+                $query->where('product_items.category_id', $this->categoryFilter)
+            )
+            ->when($this->stockFilter === 'low', fn ($query) =>
+                $query->whereColumn('product_items.front_quantity', '<=', 'product_items.reorder_level')
+            )
+            ->when($this->stockFilter === 'normal', fn ($query) =>
+                $query->whereColumn('product_items.front_quantity', '>', 'product_items.reorder_level')
+                    ->whereColumn('product_items.front_quantity', '<', 'product_items.max')
+            )
+            ->when($this->stockFilter === 'available', fn ($query) =>
+                $query->whereColumn('product_items.front_quantity', '>=', 'product_items.max')
+            )
             ->orderBy('product_items.name')
             ->get();
+    }
+
+    public function updatedSearch(): void
+    {
+        $this->loadProducts();
+    }
+
+    public function updatedCategoryFilter(): void
+    {
+        $this->loadProducts();
+    }
+
+    public function updatedStockFilter(): void
+    {
+        $this->loadProducts();
     }
 
     public function loadCategories()
@@ -71,12 +122,6 @@ new class extends Component
     }
 
     #[Renderless]
-    public function onStockOut($id)
-    {
-        $this->dispatch('onLoadProductIDStockOut', id: $id);
-    }
-
-    #[Renderless]
     public function onUpdateProduct(int $id)
     {
         $product = ProductItem::find($id);
@@ -91,6 +136,10 @@ new class extends Component
         $this->productPrice = $product->price;
         $this->productQuantity = $product->quantity;
         $this->productMax = $product->max;
+        $this->productReorderLevel = $product->reorder_level;
+        $this->productFrontQuantity = $product->front_quantity;
+        $this->productMoveToWarehouse = 0;
+        $this->productDefectiveQuantity = $product->defective_quantity;
         $this->productStatus = $product->status;
 
         Flux::modal('update-item')->show();
@@ -120,11 +169,31 @@ new class extends Component
             'productMax' => [
                 'required',
                 'integer',
-                'min:1',
+                'min:0',
+            ],
+            'productReorderLevel' => [
+                'required',
+                'integer',
+                'min:0',
+            ],
+            'productFrontQuantity' => [
+                'required',
+                'integer',
+                'min:0',
+            ],
+            'productMoveToWarehouse' => [
+                'required',
+                'integer',
+                'min:0',
+            ],
+            'productDefectiveQuantity' => [
+                'required',
+                'integer',
+                'min:0',
             ],
             'productStatus' => [
                 'required',
-                'in:available,unavailable,out_of_stock',
+                'in:available,unavailable,out_of_stock,defective',
             ],
         ]);
 
@@ -135,16 +204,53 @@ new class extends Component
             return;
         }
 
-        if ((int) $product->quantity > (int) $this->productMax) {
-            $this->productMax = $product->quantity;
+        $newDefectiveQuantity = (int) $this->productDefectiveQuantity;
+        $defectiveIncrease = $newDefectiveQuantity - (int) $product->defective_quantity;
+        $frontQuantity = (int) $this->productFrontQuantity;
+        $warehouseQuantity = (int) $product->warehouse_quantity;
+
+        if ((int) $this->productMoveToWarehouse > $frontQuantity) {
+            $this->addError(
+                'productMoveToWarehouse',
+                'Cannot move more stock than is available in front inventory.'
+            );
+
+            return;
+        }
+
+        $frontQuantity -= (int) $this->productMoveToWarehouse;
+        $warehouseQuantity += (int) $this->productMoveToWarehouse;
+
+        if ($defectiveIncrease > $warehouseQuantity) {
+            $this->addError(
+                'productDefectiveQuantity',
+                'Defective quantity cannot exceed the available warehouse stock.'
+            );
+
+            return;
+        }
+
+        if ($defectiveIncrease > 0) {
+            $warehouseQuantity -= $defectiveIncrease;
+        }
+
+        $totalQuantity = $frontQuantity + $warehouseQuantity;
+
+        if ($totalQuantity > (int) $this->productMax) {
+            $this->productMax = $totalQuantity;
         }
 
         $product->update([
             'name' => $this->productName,
             'category_id' => $this->productCategory,
             'price' => $this->productPrice,
+            'quantity' => $totalQuantity,
             'max' => $this->productMax,
-            'status' => $product->quantity > 0
+            'reorder_level' => $this->productReorderLevel,
+            'front_quantity' => $frontQuantity,
+            'warehouse_quantity' => $warehouseQuantity,
+            'defective_quantity' => $newDefectiveQuantity,
+            'status' => $totalQuantity > 0
                 ? (
                     $this->productStatus === 'out_of_stock'
                         ? 'available'
@@ -190,7 +296,11 @@ new class extends Component
             ->where('product_id', $product->id)
             ->exists();
 
-        if ($hasPurchaseOrders) {
+        $hasTransactions = DB::table('orders')
+            ->where('product_id', $product->id)
+            ->exists();
+
+        if ($hasPurchaseOrders || $hasTransactions) {
             Flux::modal('delete-item')->close();
             Flux::modal('delete-item-error')->show();
             return;
@@ -235,6 +345,10 @@ new class extends Component
         $this->productPrice = 0;
         $this->productQuantity = 0;
         $this->productMax = 0;
+        $this->productReorderLevel = 0;
+        $this->productFrontQuantity = 0;
+        $this->productMoveToWarehouse = 0;
+        $this->productDefectiveQuantity = 0;
         $this->productStatus = 'available';
 
         $this->resetValidation();
@@ -265,6 +379,24 @@ new class extends Component
             </flux:modal.trigger>
         @endif
 
+    </div>
+
+    <div class="grid grid-cols-1 gap-3 md:grid-cols-3">
+        <flux:input wire:model.live.debounce.300ms="search" placeholder="Search inventory..." icon="magnifying-glass" />
+
+        <flux:select wire:model.live="categoryFilter" placeholder="All categories">
+            <flux:select.option value="all">All categories</flux:select.option>
+            @foreach ($categories as $category)
+                <flux:select.option value="{{ $category->id }}">{{ $category->name }}</flux:select.option>
+            @endforeach
+        </flux:select>
+
+        <flux:select wire:model.live="stockFilter" placeholder="All stock levels">
+            <flux:select.option value="all">All stock levels</flux:select.option>
+            <flux:select.option value="low">Low stock</flux:select.option>
+            <flux:select.option value="normal">Normal stock</flux:select.option>
+            <flux:select.option value="available">Available stock</flux:select.option>
+        </flux:select>
     </div>
 
     <div class="grid grid-cols-3 gap-4">
@@ -332,6 +464,17 @@ new class extends Component
 
                                         @break
 
+                                    @case('defective')
+
+                                        <flux:badge
+                                            size="sm"
+                                            color="red"
+                                        >
+                                            Defective
+                                        </flux:badge>
+
+                                        @break
+
                                     @default
 
                                         <flux:badge
@@ -392,16 +535,35 @@ new class extends Component
                 </div>
 
                 <x-wirekit::progress
-                    :value="intval($product->quantity)"
+                    :value="intval($product->front_quantity)"
                     :max="intval($product->max)"
                     intent="success"
-                    label="Quantity"
+                    label="Front inventory"
                     show-value
                 />
 
+                <div class="grid grid-cols-3 gap-3 text-sm">
+                    <div>
+                        <span class="text-zinc-500">Warehouse</span>
+                        <p class="font-medium">{{ $product->warehouse_quantity }}</p>
+                    </div>
+                    <div>
+                        <span class="text-zinc-500">Re-order level</span>
+                        <p class="font-medium">{{ $product->reorder_level }}</p>
+                    </div>
+                    <div>
+                        <span class="text-zinc-500">Defective</span>
+                        <p class="font-medium">{{ $product->defective_quantity }}</p>
+                    </div>
+                </div>
+
+                @if ($product->front_quantity <= $product->reorder_level)
+                    <flux:badge size="sm" color="amber">Re-order needed</flux:badge>
+                @endif
+
 
                 @if(Auth::user()->role === 'admin' || Auth::user()->role === 'employee' || Auth::user()->role === 'staff')
-                    <div class="grid grid-cols-2 gap-2">
+                    <div class="grid grid-cols-1 gap-2">
 
                         <flux:modal.trigger name="stock-in">
 
@@ -411,18 +573,6 @@ new class extends Component
                                 class="w-full"
                             >
                                 Stock In
-                            </flux:button>
-
-                        </flux:modal.trigger>
-
-                        <flux:modal.trigger name="stock-out">
-
-                            <flux:button
-                                wire:click="onStockOut({{ $product->id }})"
-                                variant="outline"
-                                class="w-full"
-                            >
-                                Stock Out
                             </flux:button>
 
                         </flux:modal.trigger>
@@ -530,6 +680,34 @@ new class extends Component
                         readonly
                     />
 
+                    <flux:input
+                        wire:model="productFrontQuantity"
+                        type="number"
+                        readonly
+                        label="Front Inventory"
+                    />
+
+                    <flux:input
+                        wire:model="productMoveToWarehouse"
+                        type="number"
+                        min="0"
+                        label="Move Front Stock to Warehouse"
+                    />
+
+                    <flux:input
+                        wire:model="productReorderLevel"
+                        type="number"
+                        min="0"
+                        label="Re-order Level"
+                    />
+
+                    <flux:input
+                        wire:model="productDefectiveQuantity"
+                        type="number"
+                        min="0"
+                        label="Defective Quantity"
+                    />
+
                     <flux:select
                         wire:model="productStatus"
                         label="Status"
@@ -546,6 +724,10 @@ new class extends Component
 
                         <flux:select.option value="out_of_stock">
                             Out of Stock
+                        </flux:select.option>
+
+                        <flux:select.option value="defective">
+                            Defective
                         </flux:select.option>
 
                     </flux:select>
@@ -640,8 +822,8 @@ new class extends Component
                 </p>
 
                 <p class="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
-                    This inventory item is already associated with one or more purchase orders.
-                    It cannot be deleted because those purchase-order records depend on this product.
+                    This inventory item is already used by a purchase order or transaction.
+                    It cannot be deleted because those records depend on this product.
                 </p>
 
             </div>
@@ -663,6 +845,5 @@ new class extends Component
 
     <livewire:modals.inventory.new-item />
     <livewire:modals.inventory.stock-in />
-    <livewire:modals.inventory.stock-out />
 
 </div>

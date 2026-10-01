@@ -7,8 +7,10 @@ use Illuminate\Database\Eloquent\Model;
 class Transactions extends Model
 {
     protected $table = "transactions";
-    protected $fillables = [
+    protected $fillable = [
         'employee_id',
+        'id_number',
+        'cashier_id',
         'first_name',
         'last_name',
         'payment_method',
@@ -21,5 +23,6 @@ class Transactions extends Model
         'change',
         'notes',
         'status',
+        'paid_at',
     ];
 }

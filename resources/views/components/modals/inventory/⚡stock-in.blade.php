@@ -24,21 +24,27 @@ new class extends Component
 
     public function onSave() {
         $this->validate([
-            'newQuantity' => 'required|numeric',
+            'newQuantity' => 'required|integer|min:1',
         ]);
 
-        $total = intval($this->productDetails['quantity']) + intval($this->newQuantity);
+        $frontQuantity = (int) $this->productDetails->front_quantity;
+        $warehouseQuantity = (int) $this->productDetails->warehouse_quantity;
 
-        if($total <= $this->productDetails['max']) {
-            ProductItem::where('id', $this->productID)->update([
-                'quantity' => $total,
-            ]);
-        } else {
-            ProductItem::where('id', $this->productID)->update([
-                'quantity' => $total,
-                'max' => $total,
-            ]);
+        if ((int) $this->newQuantity > $warehouseQuantity) {
+            $this->addError('newQuantity', 'Cannot move more stock than is available in the warehouse.');
+
+            return;
         }
+
+        $frontQuantity += (int) $this->newQuantity;
+        $warehouseQuantity -= (int) $this->newQuantity;
+
+        ProductItem::where('id', $this->productID)->update([
+            'quantity' => $frontQuantity + $warehouseQuantity,
+            'front_quantity' => $frontQuantity,
+            'warehouse_quantity' => $warehouseQuantity,
+            'status' => 'available',
+        ]);
         $this->dispatch('onRefreshProducts');
         $this->onClose();
     }
@@ -65,11 +71,11 @@ new class extends Component
 
         <div class="flex flex-col mt-4">
             <flux:input wire:model='newQuantity' type="number" label="Quantity" />
-            <p class="text-xs text-zinc-700 mt-1">This will add to your existing quantity.</p>
+            <p class="text-xs text-zinc-700 mt-1">Moves stock from the warehouse to front inventory.</p>
         </div>
 
         <div class="grid grid-cols-2 gap-4 mt-8">
-            <flux:button variant="ghost">Cancel</flux:button>
+            <flux:button wire:click="onClose" variant="ghost">Cancel</flux:button>
             <flux:button wire:click='onSave' variant="primary">Save</flux:button>
         </div>
     </div>

@@ -18,14 +18,12 @@ new class extends Component
     public function products()
     {
         return ProductItem::query()
-            ->whereIn('status', ['available', 'out_of_stock'])
             ->when(
                 trim($this->search) !== '',
                 fn ($query) =>
                     $query->where('name', 'like', '%' . trim($this->search) . '%')
             )
             ->orderBy('name')
-            ->limit(25)
             ->get();
     }
 
@@ -89,7 +87,6 @@ new class extends Component
     public function addProduct(int $productId): void
     {
         $product = ProductItem::query()
-            ->whereIn('status', ['available', 'out_of_stock'])
             ->find($productId);
 
         if (!$product) {
@@ -135,7 +132,6 @@ new class extends Component
 
         $products = ProductItem::query()
             ->whereIn('id', $productIds)
-            ->whereIn('status', ['available', 'out_of_stock'])
             ->get()
             ->keyBy('id');
 
@@ -244,7 +240,7 @@ new class extends Component
 
                 <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-900">
 
-                    <div class="max-h-72 overflow-y-auto">
+                    <div class="max-h-[60vh] overflow-y-auto overscroll-contain">
 
                         @forelse ($this->products as $product)
 
@@ -266,6 +262,20 @@ new class extends Component
                                                 color="amber"
                                             >
                                                 Out of Stock
+                                            </flux:badge>
+                                        @elseif ($product->status === 'defective')
+                                            <flux:badge
+                                                size="sm"
+                                                color="red"
+                                            >
+                                                Defective
+                                            </flux:badge>
+                                        @elseif ($product->status === 'unavailable')
+                                            <flux:badge
+                                                size="sm"
+                                                color="zinc"
+                                            >
+                                                Unavailable
                                             </flux:badge>
                                         @else
                                             <flux:badge

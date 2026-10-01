@@ -12,6 +12,10 @@ class ProductItem extends Model
         'category_id',
         'quantity',
         'max',
+        'reorder_level',
+        'front_quantity',
+        'warehouse_quantity',
+        'defective_quantity',
         'price',
         'status',
     ];

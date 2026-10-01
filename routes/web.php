@@ -61,6 +61,7 @@ Route::middleware(['auth', 'verified', 'role:employee'])->group(function () {
     Route::livewire('/employee/inventory', 'pages::user.inventory')->name('employee.inventory');
     Route::livewire('/employee/user-management', 'pages::user.user-management')->name('employee.user-management');
     Route::livewire('/employee/purchase-order', 'pages::user.purchase-order')->name('employee.purchase-order');
+    Route::livewire('/employee/college-requests', 'pages::user.college-requests')->name('employee.college-requests');
 });
 
 Route::middleware(['auth', 'verified', 'role:admin'])->group(function () {
@@ -71,6 +72,7 @@ Route::middleware(['auth', 'verified', 'role:admin'])->group(function () {
     Route::livewire('/admin/inventory', 'pages::user.inventory')->name('admin.inventory');
     Route::livewire('/admin/user-management', 'pages::user.user-management')->name('admin.user-management');
     Route::livewire('/admin/purchase-order', 'pages::user.purchase-order')->name('admin.purchase-order');
+    Route::livewire('/admin/college-requests', 'pages::user.college-requests')->name('admin.college-requests');
 });
 
 Route::middleware(['auth', 'verified', 'role:cashier'])->group(function () {
@@ -81,6 +83,7 @@ Route::middleware(['auth', 'verified', 'role:cashier'])->group(function () {
     Route::livewire('/cashier/inventory', 'pages::user.inventory')->name('cashier.inventory');
     Route::livewire('/cashier/user-management', 'pages::user.user-management')->name('cashier.user-management');
     Route::livewire('/cashier/purchase-order', 'pages::user.purchase-order')->name('cashier.purchase-order');
+    Route::livewire('/cashier/college-requests', 'pages::user.college-requests')->name('cashier.college-requests');
 });
 
 Route::middleware(['auth', 'verified', 'role:staff'])->group(function () {
@@ -91,6 +94,7 @@ Route::middleware(['auth', 'verified', 'role:staff'])->group(function () {
     Route::livewire('/staff/inventory', 'pages::user.inventory')->name('staff.inventory');
     Route::livewire('/staff/user-management', 'pages::user.user-management')->name('staff.user-management');
     Route::livewire('/staff/purchase-order', 'pages::user.purchase-order')->name('staff.purchase-order');
+    Route::livewire('/staff/college-requests', 'pages::user.college-requests')->name('staff.college-requests');
 });
 
 require __DIR__.'/settings.php';

@@ -33,7 +33,8 @@ new class extends Component
 
         $this->totalStock =
             (int) DB::table('product_items')
-                ->sum('quantity');
+                ->selectRaw('COALESCE(SUM(front_quantity + warehouse_quantity), 0) as total_stock')
+                ->value('total_stock');
 
         $this->inventoryValue =
             (float) DB::table('product_items')
@@ -106,7 +107,9 @@ new class extends Component
                 ->select([
                     'product_items.id',
                     'product_items.name',
-                    'product_items.quantity',
+                    'product_items.front_quantity',
+                    'product_items.warehouse_quantity',
+                    'product_items.reorder_level',
                     'product_items.max',
                     'product_items.price',
                     'product_items.status',
@@ -168,7 +171,7 @@ new class extends Component
                         $currentStock =
                             max(
                                 0,
-                                (int) $product->quantity
+                                (int) $product->front_quantity + (int) $product->warehouse_quantity
                             );
 
                         $maximumStock =

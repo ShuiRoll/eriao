@@ -40,6 +40,7 @@ new class extends Component
     public $selectedKpi = null;
     public $kpiDetails = [];
     public $kpiRecords = [];
+    public array $transactionRecordDetails = [];
     public int $kpiRecordCount = 0;
     public int $kpiRecordsShown = 0;
     public int $kpiRecordLimit = 100;
@@ -90,7 +91,9 @@ new class extends Component
         $this->totalTransactions = $transactionQuery->count();
 
         $this->totalProducts = DB::table('product_items')->count();
-        $this->totalStock = (int) DB::table('product_items')->sum('quantity');
+        $this->totalStock = (int) DB::table('product_items')
+            ->selectRaw('COALESCE(SUM(front_quantity + warehouse_quantity), 0) as total_stock')
+            ->value('total_stock');
 
         $this->inventoryValue = (float) DB::table('product_items')
             ->selectRaw(
@@ -337,6 +340,7 @@ new class extends Component
             $this->kpiRecords = $query
                 ->select([
                     'transactions.id',
+                    'transactions.id_number',
                     'transactions.first_name',
                     'transactions.last_name',
                     'transactions.payment_method',
@@ -356,7 +360,7 @@ new class extends Component
                 ->map(function ($record) {
                     return [
                         'id' => $record->id,
-                        'customer' => trim(
+                        'student_id' => $record->id_number ?: trim(
                             ($record->first_name ?? '') .
                             ' ' .
                             ($record->last_name ?? '')
@@ -419,7 +423,9 @@ new class extends Component
                     'product_items.id',
                     'product_items.name',
                     'product_categories.name as category_name',
-                    'product_items.quantity',
+                    'product_items.front_quantity',
+                    'product_items.warehouse_quantity',
+                    'product_items.reorder_level',
                     'product_items.max',
                     'product_items.price',
                     'product_items.status',
@@ -434,14 +440,17 @@ new class extends Component
                         'id' => $record->id,
                         'product' => $record->name ?? '—',
                         'category' => $record->category_name ?? 'Uncategorized',
-                        'quantity' => number_format((int) ($record->quantity ?? 0)),
+                        'quantity' => number_format((int) ($record->front_quantity ?? 0) + (int) ($record->warehouse_quantity ?? 0)),
+                        'front_quantity' => number_format((int) ($record->front_quantity ?? 0)),
+                        'warehouse_quantity' => number_format((int) ($record->warehouse_quantity ?? 0)),
+                        'reorder_level' => number_format((int) ($record->reorder_level ?? 0)),
                         'maximum' => number_format((int) ($record->max ?? 0)),
                         'price' => '₱' . number_format(
                             (float) ($record->price ?? 0),
                             2
                         ),
                         'inventory_value' => '₱' . number_format(
-                            (float) ($record->quantity ?? 0) *
+                            ((float) ($record->front_quantity ?? 0) + (float) ($record->warehouse_quantity ?? 0)) *
                             (float) ($record->price ?? 0),
                             2
                         ),
@@ -520,6 +529,58 @@ new class extends Component
         Flux::modal('kpi-details')->show();
     }
 
+    public function viewTransactionRecord(int $transactionId): void
+    {
+        $transaction = DB::table('transactions')
+            ->leftJoin('users', 'users.id', '=', 'transactions.employee_id')
+            ->where('transactions.id', $transactionId)
+            ->whereIn('transactions.status', ['completed', 'paid'])
+            ->select([
+                'transactions.*',
+                'users.first_name as employee_first_name',
+                'users.last_name as employee_last_name',
+            ])
+            ->first();
+
+        if (!$transaction) {
+            return;
+        }
+
+        $items = DB::table('orders')
+            ->leftJoin('product_items', 'product_items.id', '=', 'orders.product_id')
+            ->where('orders.transaction_id', $transactionId)
+            ->select([
+                'orders.id',
+                'orders.product_id',
+                'product_items.name as product_name',
+                'product_items.price',
+            ])
+            ->orderBy('orders.id')
+            ->get()
+            ->map(fn ($item) => [
+                'name' => $item->product_name ?? 'Missing product #' . $item->product_id,
+                'price' => (float) ($item->price ?? 0),
+            ])
+            ->all();
+
+        $this->transactionRecordDetails = [
+            'id' => $transaction->id,
+            'student_id' => $transaction->id_number ?: trim($transaction->first_name . ' ' . $transaction->last_name),
+            'payment_method' => $transaction->payment_method,
+            'reference_num' => $transaction->reference_num,
+            'discount_category' => $transaction->discount_category,
+            'discount_price' => (float) $transaction->discount_price,
+            'tax' => (float) $transaction->tax,
+            'total_amount' => (float) $transaction->total_amount,
+            'status' => $transaction->status,
+            'employee' => trim(($transaction->employee_first_name ?? '') . ' ' . ($transaction->employee_last_name ?? '')),
+            'created_at' => $transaction->created_at,
+            'items' => $items,
+        ];
+
+        Flux::modal('transaction-record-details')->show();
+    }
+
     protected function reportRangeLabel(): string
     {
         return match ($this->reportRange) {
@@ -593,7 +654,7 @@ new class extends Component
             ->select(
                 'product_categories.name',
                 DB::raw(
-                    'COALESCE(SUM(product_items.quantity), 0) as quantity'
+                    'COALESCE(SUM(product_items.front_quantity + product_items.warehouse_quantity), 0) as quantity'
                 )
             )
             ->groupBy(
@@ -953,7 +1014,7 @@ new class extends Component
                 'product_items.id',
                 'product_items.name',
                 'product_categories.name as category_name',
-                'product_items.quantity',
+                DB::raw('(product_items.front_quantity + product_items.warehouse_quantity) as quantity'),
                 'product_items.max',
                 'product_items.price',
                 'product_items.status',
@@ -2296,7 +2357,7 @@ new class extends Component
                             <thead class="sticky top-0 bg-zinc-50 dark:bg-zinc-800">
                                 <tr class="border-b border-zinc-200 dark:border-zinc-700">
                                     <th class="px-4 py-3 text-left font-medium">ID</th>
-                                    <th class="px-4 py-3 text-left font-medium">Customer</th>
+                                    <th class="px-4 py-3 text-left font-medium">Student ID</th>
                                     <th class="px-4 py-3 text-left font-medium">Payment</th>
                                     <th class="px-4 py-3 text-left font-medium">Reference</th>
                                     <th class="px-4 py-3 text-right font-medium">Discount</th>
@@ -2305,13 +2366,14 @@ new class extends Component
                                     <th class="px-4 py-3 text-left font-medium">Status</th>
                                     <th class="px-4 py-3 text-left font-medium">Employee</th>
                                     <th class="px-4 py-3 text-left font-medium">Date</th>
+                                    <th class="px-4 py-3 text-left font-medium">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 @forelse ($kpiRecords as $record)
                                     <tr class="border-b border-zinc-200 last:border-b-0 dark:border-zinc-700">
                                         <td class="whitespace-nowrap px-4 py-3">{{ $record['id'] }}</td>
-                                        <td class="whitespace-nowrap px-4 py-3">{{ $record['customer'] }}</td>
+                                        <td class="whitespace-nowrap px-4 py-3">{{ $record['student_id'] ?: '—' }}</td>
                                         <td class="whitespace-nowrap px-4 py-3">{{ $record['payment_method'] }}</td>
                                         <td class="whitespace-nowrap px-4 py-3">{{ $record['reference_num'] }}</td>
                                         <td class="whitespace-nowrap px-4 py-3 text-right">{{ $record['discount_price'] }}</td>
@@ -2320,10 +2382,19 @@ new class extends Component
                                         <td class="whitespace-nowrap px-4 py-3">{{ $record['status'] }}</td>
                                         <td class="whitespace-nowrap px-4 py-3">{{ $record['employee'] }}</td>
                                         <td class="whitespace-nowrap px-4 py-3">{{ $record['created_at'] }}</td>
+                                        <td class="whitespace-nowrap px-4 py-3">
+                                            <flux:button
+                                                size="sm"
+                                                variant="ghost"
+                                                wire:click="viewTransactionRecord({{ $record['id'] }})"
+                                            >
+                                                View more
+                                            </flux:button>
+                                        </td>
                                     </tr>
                                 @empty
                                     <tr>
-                                        <td colspan="10" class="px-4 py-10 text-center text-sm text-zinc-500 dark:text-zinc-400">
+                                        <td colspan="11" class="px-4 py-10 text-center text-sm text-zinc-500 dark:text-zinc-400">
                                             No contributing records were found for this timeframe.
                                         </td>
                                     </tr>
@@ -2404,6 +2475,48 @@ new class extends Component
                 <flux:modal.close>
                     <flux:button variant="ghost">Close</flux:button>
                 </flux:modal.close>
+            </div>
+        </div>
+    </flux:modal>
+
+    <flux:modal name="transaction-record-details" class="max-w-xl w-full">
+        <div class="flex flex-col gap-5">
+            <div>
+                <p class="text-lg font-semibold">Transaction #{{ $transactionRecordDetails['id'] ?? '' }}</p>
+                <p class="text-sm text-zinc-500">Purchased items and transaction details</p>
+            </div>
+
+            <dl class="grid grid-cols-2 gap-3 text-sm">
+                <div><dt class="text-zinc-500">Student ID</dt><dd class="font-medium">{{ $transactionRecordDetails['student_id'] ?? '—' }}</dd></div>
+                <div><dt class="text-zinc-500">Status</dt><dd class="font-medium">{{ ucfirst($transactionRecordDetails['status'] ?? '—') }}</dd></div>
+                <div><dt class="text-zinc-500">Payment</dt><dd class="font-medium">{{ $transactionRecordDetails['payment_method'] ?? '—' }}</dd></div>
+                <div><dt class="text-zinc-500">Reference</dt><dd class="font-medium">{{ ($transactionRecordDetails['reference_num'] ?? '') ?: '—' }}</dd></div>
+                <div><dt class="text-zinc-500">Discount</dt><dd class="font-medium">{{ ($transactionRecordDetails['discount_category'] ?? '') ?: 'None' }} · ₱{{ number_format((float) ($transactionRecordDetails['discount_price'] ?? 0), 2) }}</dd></div>
+                <div><dt class="text-zinc-500">Tax</dt><dd class="font-medium">₱{{ number_format((float) ($transactionRecordDetails['tax'] ?? 0), 2) }}</dd></div>
+                <div><dt class="text-zinc-500">Employee</dt><dd class="font-medium">{{ ($transactionRecordDetails['employee'] ?? '') ?: '—' }}</dd></div>
+                <div><dt class="text-zinc-500">Date</dt><dd class="font-medium">{{ !empty($transactionRecordDetails['created_at']) ? Carbon::parse($transactionRecordDetails['created_at'])->format('M d, Y h:i A') : '—' }}</dd></div>
+            </dl>
+
+            <div class="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-700">
+                <div class="max-h-64 overflow-y-auto divide-y divide-zinc-100 dark:divide-zinc-800">
+                    @forelse (($transactionRecordDetails['items'] ?? []) as $item)
+                        <div class="flex items-center justify-between gap-4 px-4 py-3 text-sm">
+                            <span>{{ $item['name'] }}</span>
+                            <span class="font-medium">₱{{ number_format($item['price'], 2) }}</span>
+                        </div>
+                    @empty
+                        <p class="px-4 py-6 text-center text-sm text-zinc-500">No purchased item records found.</p>
+                    @endforelse
+                </div>
+            </div>
+
+            <div class="flex items-center justify-between border-t border-zinc-200 pt-4 dark:border-zinc-700">
+                <span class="font-semibold">Total</span>
+                <span class="text-lg font-bold">₱{{ number_format((float) ($transactionRecordDetails['total_amount'] ?? 0), 2) }}</span>
+            </div>
+
+            <div class="flex justify-end">
+                <flux:modal.close><flux:button variant="ghost">Close</flux:button></flux:modal.close>
             </div>
         </div>
     </flux:modal>

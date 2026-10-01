@@ -161,7 +161,7 @@
                             class="eriao-sidebar-item"
                             style="{{ request()->routeIs('admin.transactions') ? 'background: rgba(255, 255, 255, 0.12) !important; background-color: rgba(255, 255, 255, 0.12) !important; backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-shadow: 0 8px 30px rgba(0, 0, 0, 0.06) !important;' : '' }}"
                         >
-                            {{ __('Transaction History') }}
+                            {{ __('Transactions') }}
                         </flux:sidebar.item>
 
                         <flux:sidebar.item
@@ -184,6 +184,17 @@
                             style="{{ request()->routeIs('admin.purchase-order') ? 'background: rgba(255, 255, 255, 0.12) !important; background-color: rgba(255, 255, 255, 0.12) !important; backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-shadow: 0 8px 30px rgba(0, 0, 0, 0.06) !important;' : '' }}"
                         >
                             {{ __('Purchase Order') }}
+                        </flux:sidebar.item>
+
+                        <flux:sidebar.item
+                            icon="document-text"
+                            :href="route('admin.college-requests')"
+                            :current="request()->routeIs('admin.college-requests')"
+                            wire:navigate
+                            class="eriao-sidebar-item"
+                            style="{{ request()->routeIs('admin.college-requests') ? 'background: rgba(255, 255, 255, 0.12) !important; background-color: rgba(255, 255, 255, 0.12) !important; backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-shadow: 0 8px 30px rgba(0, 0, 0, 0.06) !important;' : '' }}"
+                        >
+                            {{ __('College Requests') }}
                         </flux:sidebar.item>
 
                         <flux:sidebar.item
@@ -236,7 +247,7 @@
                             class="eriao-sidebar-item"
                             style="{{ request()->routeIs('employee.transactions') ? 'background: rgba(255, 255, 255, 0.12) !important; background-color: rgba(255, 255, 255, 0.12) !important; backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-shadow: 0 8px 30px rgba(0, 0, 0, 0.06) !important;' : '' }}"
                         >
-                            {{ __('Transaction History') }}
+                            {{ __('Transactions') }}
                         </flux:sidebar.item>
 
                         <flux:sidebar.item
@@ -259,6 +270,17 @@
                             style="{{ request()->routeIs('employee.purchase-order') ? 'background: rgba(255, 255, 255, 0.12) !important; background-color: rgba(255, 255, 255, 0.12) !important; backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-shadow: 0 8px 30px rgba(0, 0, 0, 0.06) !important;' : '' }}"
                         >
                             {{ __('Purchase Order') }}
+                        </flux:sidebar.item>
+
+                        <flux:sidebar.item
+                            icon="document-text"
+                            :href="route('employee.college-requests')"
+                            :current="request()->routeIs('employee.college-requests')"
+                            wire:navigate
+                            class="eriao-sidebar-item"
+                            style="{{ request()->routeIs('employee.college-requests') ? 'background: rgba(255, 255, 255, 0.12) !important; background-color: rgba(255, 255, 255, 0.12) !important; backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-shadow: 0 8px 30px rgba(0, 0, 0, 0.06) !important;' : '' }}"
+                        >
+                            {{ __('College Requests') }}
                         </flux:sidebar.item>
 
                     </flux:sidebar.group>
@@ -300,7 +322,7 @@
                             class="eriao-sidebar-item"
                             style="{{ request()->routeIs('cashier.transactions') ? 'background: rgba(255, 255, 255, 0.12) !important; background-color: rgba(255, 255, 255, 0.12) !important; backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-shadow: 0 8px 30px rgba(0, 0, 0, 0.06) !important;' : '' }}"
                         >
-                            {{ __('Transaction History') }}
+                            {{ __('Transactions') }}
                         </flux:sidebar.item>
 
                         <flux:sidebar.item
@@ -323,6 +345,17 @@
                             style="{{ request()->routeIs('cashier.purchase-order') ? 'background: rgba(255, 255, 255, 0.12) !important; background-color: rgba(255, 255, 255, 0.12) !important; backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-shadow: 0 8px 30px rgba(0, 0, 0, 0.06) !important;' : '' }}"
                         >
                             {{ __('Purchase Order') }}
+                        </flux:sidebar.item>
+
+                        <flux:sidebar.item
+                            icon="document-text"
+                            :href="route('cashier.college-requests')"
+                            :current="request()->routeIs('cashier.college-requests')"
+                            wire:navigate
+                            class="eriao-sidebar-item"
+                            style="{{ request()->routeIs('cashier.college-requests') ? 'background: rgba(255, 255, 255, 0.12) !important; background-color: rgba(255, 255, 255, 0.12) !important; backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-shadow: 0 8px 30px rgba(0, 0, 0, 0.06) !important;' : '' }}"
+                        >
+                            {{ __('College Requests') }}
                         </flux:sidebar.item>
 
                     </flux:sidebar.group>
@@ -353,7 +386,7 @@
                             class="eriao-sidebar-item"
                             style="{{ request()->routeIs('staff.transactions') ? 'background: rgba(255, 255, 255, 0.12) !important; background-color: rgba(255, 255, 255, 0.12) !important; backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-shadow: 0 8px 30px rgba(0, 0, 0, 0.06) !important;' : '' }}"
                         >
-                            {{ __('Transaction History') }}
+                            {{ __('Transactions') }}
                         </flux:sidebar.item>
 
                         <flux:sidebar.item
@@ -376,6 +409,17 @@
                             style="{{ request()->routeIs('staff.purchase-order') ? 'background: rgba(255, 255, 255, 0.12) !important; background-color: rgba(255, 255, 255, 0.12) !important; backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-shadow: 0 8px 30px rgba(0, 0, 0, 0.06) !important;' : '' }}"
                         >
                             {{ __('Purchase Order') }}
+                        </flux:sidebar.item>
+
+                        <flux:sidebar.item
+                            icon="document-text"
+                            :href="route('staff.college-requests')"
+                            :current="request()->routeIs('staff.college-requests')"
+                            wire:navigate
+                            class="eriao-sidebar-item"
+                            style="{{ request()->routeIs('staff.college-requests') ? 'background: rgba(255, 255, 255, 0.12) !important; background-color: rgba(255, 255, 255, 0.12) !important; backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-shadow: 0 8px 30px rgba(0, 0, 0, 0.06) !important;' : '' }}"
+                        >
+                            {{ __('College Requests') }}
                         </flux:sidebar.item>
 
                     </flux:sidebar.group>

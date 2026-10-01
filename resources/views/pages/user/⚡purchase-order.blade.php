@@ -8,6 +8,7 @@ use App\Models\PurchaseOrderItems;
 use App\Models\User;
 use App\Models\ProductItem;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use Flux\Flux;
 use Carbon\Carbon;
 use Livewire\Attributes\On;
@@ -33,6 +34,8 @@ new class extends Component
     public ?int $selectedOrderId = null;
 
     public ?int $confirmationOrderId = null;
+
+    public array $receivedQuantities = [];
 
     public string $confirmationAction = '';
 
@@ -356,6 +359,7 @@ new class extends Component
         return match ($status) {
             'pending' => 'amber',
             'approved' => 'blue',
+            'incomplete' => 'amber',
             'received' => 'green',
             'completed' => 'green',
             'rejected' => 'red',
@@ -425,7 +429,7 @@ new class extends Component
     {
         $exists = PurchaseOrder::query()
             ->where('id', $orderId)
-            ->where('status', 'approved')
+            ->whereIn('status', ['approved', 'incomplete'])
             ->exists();
 
         if (!$exists) {
@@ -435,6 +439,13 @@ new class extends Component
         $this->confirmationOrderId = $orderId;
         $this->confirmationAction = 'receive';
         $this->selectedOrderId = $orderId;
+        $this->receivedQuantities = PurchaseOrderItems::query()
+            ->where('purchase_order_id', $orderId)
+            ->get()
+            ->mapWithKeys(fn ($item) => [
+                $item->id => 0,
+            ])
+            ->all();
 
         Flux::modal('confirm-receive-purchase-order')->show();
     }
@@ -539,7 +550,7 @@ new class extends Component
 
             $order = PurchaseOrder::query()
                 ->where('id', $this->confirmationOrderId)
-                ->where('status', 'approved')
+                ->whereIn('status', ['approved', 'incomplete'])
                 ->lockForUpdate()
                 ->first();
 
@@ -555,7 +566,20 @@ new class extends Component
                 ->lockForUpdate()
                 ->get();
 
+            $receivedThisDelivery = 0;
+
             foreach ($items as $item) {
+
+                $receivedNow = (int) ($this->receivedQuantities[$item->id] ?? 0);
+                $remaining = (int) $item->quantity - (int) $item->received_quantity;
+
+                if ($receivedNow < 0 || $receivedNow > $remaining) {
+                    throw ValidationException::withMessages([
+                        'receivedQuantities.' . $item->id => 'Received quantity must be between 0 and the remaining quantity.',
+                    ]);
+                }
+
+                $receivedThisDelivery += $receivedNow;
 
                 $product = ProductItem::query()
                     ->whereKey($item->product_id)
@@ -566,18 +590,20 @@ new class extends Component
                     continue;
                 }
 
-                $currentQuantity = (int) $product->quantity;
+                $currentWarehouseQuantity = (int) $product->warehouse_quantity;
 
-                $incomingQuantity = (int) $item->quantity;
+                $incomingQuantity = $receivedNow;
 
                 $currentMax = (int) $product->max;
 
-                $newTotalQuantity = $currentQuantity + $incomingQuantity;
+                $newWarehouseQuantity = $currentWarehouseQuantity + $incomingQuantity;
+                $newTotalQuantity = (int) $product->front_quantity + $newWarehouseQuantity;
 
                 if ($newTotalQuantity > $currentMax) {
                     $product->max = $newTotalQuantity;
                 }
 
+                $product->warehouse_quantity = $newWarehouseQuantity;
                 $product->quantity = $newTotalQuantity;
 
                 if ($newTotalQuantity > 0) {
@@ -585,10 +611,23 @@ new class extends Component
                 }
 
                 $product->save();
+
+                $item->received_quantity = (int) $item->received_quantity + $receivedNow;
+                $item->save();
             }
 
+            if ($receivedThisDelivery === 0) {
+                throw ValidationException::withMessages([
+                    'receivedQuantities' => 'Enter at least one item received in this delivery.',
+                ]);
+            }
+
+            $isComplete = $items->every(fn ($item) =>
+                (int) $item->received_quantity >= (int) $item->quantity
+            );
+
             $order->update([
-                'status' => 'completed',
+                'status' => $isComplete ? 'completed' : 'incomplete',
             ]);
         });
 
@@ -664,6 +703,7 @@ new class extends Component
 
         $this->confirmationOrderId = null;
         $this->confirmationAction = '';
+        $this->receivedQuantities = [];
     }
 
     public function clearFilters(): void
@@ -971,7 +1011,7 @@ new class extends Component
 
                                         @endif
 
-                                        @if ($order->status === 'approved')
+                                        @if (in_array($order->status, ['approved', 'incomplete'], true))
 
                                             @if(Auth::user()->role === 'admin' || Auth::user()->role === 'employee' || Auth::user()->role === 'staff')
                                                 <flux:menu.item
@@ -1353,7 +1393,9 @@ new class extends Component
                                     </p>
 
                                     <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                                        {{ number_format($item->quantity) }}
+                                        Ordered: {{ number_format($item->quantity) }}
+                                        · Received: {{ number_format($item->received_quantity) }}
+                                        · Remaining: {{ number_format($item->quantity - $item->received_quantity) }}
                                         ×
                                         PHP {{ number_format($item->unit_price, 2) }}
                                     </p>
@@ -1537,13 +1579,32 @@ new class extends Component
                 </p>
 
                 <p class="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
-                    Are you sure you want to mark this purchase order as received?
-                    The ordered quantities will be added to inventory as stock in.
+                    Enter the quantity received for this delivery. Partial deliveries remain incomplete.
                 </p>
 
             </div>
 
             @if ($this->selectedOrder)
+
+                <div class="flex flex-col gap-3">
+                    @foreach ($this->selectedOrderItems as $item)
+                        <div class="flex items-center justify-between gap-4">
+                            <div>
+                                <p class="font-medium">{{ $item->product_name }}</p>
+                                <p class="text-xs text-zinc-500">
+                                    Remaining: {{ number_format($item->quantity - $item->received_quantity) }}
+                                </p>
+                            </div>
+                            <flux:input
+                                wire:model="receivedQuantities.{{ $item->id }}"
+                                type="number"
+                                min="0"
+                                max="{{ $item->quantity - $item->received_quantity }}"
+                                label="Received now"
+                            />
+                        </div>
+                    @endforeach
+                </div>
 
                 <div class="rounded-lg bg-zinc-50 p-4 dark:bg-zinc-800/50">
 
@@ -1578,7 +1639,7 @@ new class extends Component
             <div class="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/50 dark:bg-amber-950/30">
 
                 <p class="text-sm text-amber-800 dark:text-amber-200">
-                    Receiving this purchase order will increase inventory quantities.
+                    Receiving these units will increase warehouse inventory.
                     If the resulting inventory quantity exceeds a product's current maximum,
                     the maximum will automatically be increased to the new quantity.
                 </p>
@@ -1597,7 +1658,7 @@ new class extends Component
                     wire:click="receiveOrder"
                     variant="primary"
                 >
-                    Received
+                    Receive delivery
                 </flux:button>
 
             </div>

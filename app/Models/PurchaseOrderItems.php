@@ -10,5 +10,8 @@ class PurchaseOrderItems extends Model
     protected $fillable = [
         'purchase_order_id',
         'product_id',
+        'quantity',
+        'received_quantity',
+        'unit_price',
     ];
 }

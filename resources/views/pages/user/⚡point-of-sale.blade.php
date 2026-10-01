@@ -30,7 +30,9 @@ new class extends Component
                 'product_items.id',
                 'product_items.category_id',
                 'product_items.name',
-                'product_items.quantity',
+                'product_items.front_quantity',
+                'product_items.warehouse_quantity',
+                'product_items.reorder_level',
                 'product_items.max',
                 'product_items.price',
                 'product_items.status',
@@ -50,16 +52,11 @@ new class extends Component
     public function checkout(array $payload)
     {
         $validated = validator($payload, [
-            'first_name' => ['required', 'string', 'max:255'],
-            'last_name' => ['required', 'string', 'max:255'],
-            'payment_method' => ['required', 'string', 'max:255'],
-            'reference_num' => ['nullable', 'string', 'max:255'],
+            'id_number' => ['required', 'string', 'max:255'],
             'discount_category' => ['nullable', 'string', 'max:255'],
             'discount_price' => ['required', 'numeric', 'min:0'],
             'tax' => ['required', 'numeric', 'min:0'],
             'total_amount' => ['required', 'numeric', 'min:0'],
-            'cash' => ['required', 'numeric', 'min:0'],
-            'change' => ['required', 'numeric', 'min:0'],
             'notes' => ['nullable', 'string'],
             'items' => ['required', 'array', 'min:1'],
             'items.*.id' => ['required', 'integer'],
@@ -96,41 +93,30 @@ new class extends Component
                     ]);
                 }
 
-                if ((int) $product->quantity < (int) $item['quantity']) {
+                if ((int) $product->front_quantity < (int) $item['quantity']) {
                     throw ValidationException::withMessages([
                         'items' => "Insufficient stock for {$product->name}.",
                     ]);
                 }
             }
 
-            $paymentMethod = strtolower($validated['payment_method']);
             $total = round((float) $validated['total_amount'], 2);
-            $cash = round((float) $validated['cash'], 2);
-
-            if ($paymentMethod === 'cash' && $cash < $total) {
-                throw ValidationException::withMessages([
-                    'cash' => 'Cash received cannot be less than the total amount.',
-                ]);
-            }
-
-            $change = $paymentMethod === 'cash'
-                ? round($cash - $total, 2)
-                : 0;
 
             $transactionId = DB::table('transactions')->insertGetId([
                 'employee_id' => auth()->id(),
-                'first_name' => $validated['first_name'],
-                'last_name' => $validated['last_name'],
-                'payment_method' => $validated['payment_method'],
-                'reference_num' => $validated['reference_num'] ?: null,
+                'id_number' => $validated['id_number'],
+                'first_name' => '',
+                'last_name' => '',
+                'payment_method' => 'Pending',
+                'reference_num' => null,
                 'discount_category' => $validated['discount_category'] ?: null,
                 'discount_price' => round((float) $validated['discount_price'], 2),
                 'tax' => round((float) $validated['tax'], 2),
                 'total_amount' => $total,
-                'cash' => $paymentMethod === 'cash' ? $cash : 0,
-                'change' => $change,
+                'cash' => 0,
+                'change' => 0,
                 'notes' => $validated['notes'] ?: null,
-                'status' => 'completed',
+                'status' => 'pending',
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
@@ -148,23 +134,12 @@ new class extends Component
                     ]);
                 }
 
-                $remaining = max(
-                    0,
-                    (int) $product->quantity - $quantity
-                );
-
-                $product->update([
-                    'quantity' => $remaining,
-                    'status' => $remaining <= 0
-                        ? 'out_of_stock'
-                        : 'available',
-                ]);
             }
         });
 
         $this->loadProducts();
 
-        $this->dispatch('pos-transaction-completed');
+        $this->dispatch('pos-slip-created');
     }
 };
 ?>
@@ -177,7 +152,10 @@ new class extends Component
             'name' => $product->name,
             'category_id' => $product->category_id,
             'category' => $product->category_name ?? 'Uncategorized',
-            'quantity' => (int) $product->quantity,
+            'quantity' => (int) $product->front_quantity,
+            'front_quantity' => (int) $product->front_quantity,
+            'warehouse_quantity' => (int) $product->warehouse_quantity,
+            'reorder_level' => (int) $product->reorder_level,
             'max' => (int) $product->max,
             'price' => (float) $product->price,
             'status' => $product->status,
@@ -189,17 +167,13 @@ new class extends Component
         cart: [],
 
         customer: {
-            first_name: '',
-            last_name: ''
+            id_number: ''
         },
 
-        payment_method: 'Cash',
-        reference_num: '',
         discount_category: '',
         discount_value: 0,
         discount_type: 'fixed',
         tax: 0,
-        cash: 0,
         notes: '',
         processing: false,
 
@@ -254,17 +228,6 @@ new class extends Component
                 this.subtotal -
                     this.discountAmount +
                     this.taxAmount
-            );
-        },
-
-        get change() {
-            if (this.payment_method !== 'Cash') {
-                return 0;
-            }
-
-            return Math.max(
-                0,
-                (Number(this.cash) || 0) - this.total
             );
         },
 
@@ -338,15 +301,11 @@ new class extends Component
         },
 
         resetCustomer() {
-            this.customer.first_name = '';
-            this.customer.last_name = '';
-            this.reference_num = '';
+            this.customer.id_number = '';
             this.notes = '';
         },
 
         resetPayment() {
-            this.payment_method = 'Cash';
-            this.cash = 0;
             this.discount_category = '';
             this.discount_value = 0;
             this.discount_type = 'fixed';
@@ -366,23 +325,9 @@ new class extends Component
                 return;
             }
 
-            if (
-                !this.customer.first_name.trim() ||
-                !this.customer.last_name.trim()
-            ) {
+            if (!this.customer.id_number.trim()) {
                 this.$dispatch('pos-error', {
-                    message: 'Please enter the customer name.'
-                });
-
-                return;
-            }
-
-            if (
-                this.payment_method === 'Cash' &&
-                Number(this.cash) < this.total
-            ) {
-                this.$dispatch('pos-error', {
-                    message: 'Cash received is not enough to complete the transaction.'
+                    message: 'Please enter the student ID number.'
                 });
 
                 return;
@@ -391,10 +336,7 @@ new class extends Component
             this.processing = true;
 
             const payload = {
-                first_name: this.customer.first_name.trim(),
-                last_name: this.customer.last_name.trim(),
-                payment_method: this.payment_method,
-                reference_num: this.reference_num.trim(),
+                id_number: this.customer.id_number.trim(),
                 discount_category: this.discount_category,
                 discount_price: Number(
                     this.discountAmount.toFixed(2)
@@ -404,12 +346,6 @@ new class extends Component
                 ),
                 total_amount: Number(
                     this.total.toFixed(2)
-                ),
-                cash: this.payment_method === 'Cash'
-                    ? Number(this.cash)
-                    : 0,
-                change: Number(
-                    this.change.toFixed(2)
                 ),
                 notes: this.notes.trim(),
                 items: this.cart.map(item => ({
@@ -432,14 +368,8 @@ new class extends Component
         },
 
         init() {
-            this.$watch('payment_method', value => {
-                if (value !== 'Cash') {
-                    this.cash = 0;
-                }
-            });
-
             this.$wire.on(
-                'pos-transaction-completed',
+                'pos-slip-created',
                 () => {
                     this.clearCart();
                     this.resetCustomer();
@@ -452,8 +382,7 @@ new class extends Component
                     );
 
                     this.$dispatch('pos-success', {
-                        message:
-                            'Transaction completed successfully.'
+                        message: 'Payment slip created. Send the student to the cashier.'
                     });
                 }
             );
@@ -832,72 +761,24 @@ new class extends Component
         <div class="flex flex-col gap-6">
             <div>
                 <p class="text-lg font-semibold">
-                    Complete Transaction
+                    Create Payment Slip
                 </p>
 
                 <p class="text-sm text-zinc-500">
-                    Enter the customer and payment details.
+                    Enter the student ID and order details. Payment is completed at the cashier.
                 </p>
             </div>
 
             <div class="flex flex-col gap-4">
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
                     <flux:field>
                         <flux:label>
-                            First Name
+                            Student ID Number
                         </flux:label>
 
                         <flux:input
-                            x-model="customer.first_name"
-                            placeholder="First name"
-                        />
-                    </flux:field>
-
-                    <flux:field>
-                        <flux:label>
-                            Last Name
-                        </flux:label>
-
-                        <flux:input
-                            x-model="customer.last_name"
-                            placeholder="Last name"
-                        />
-                    </flux:field>
-                </div>
-
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <flux:field>
-                        <flux:label>
-                            Payment Method
-                        </flux:label>
-
-                        <flux:select x-model="payment_method">
-                            <flux:select.option value="Cash">
-                                Cash
-                            </flux:select.option>
-
-                            <flux:select.option value="GCash">
-                                GCash
-                            </flux:select.option>
-
-                            <flux:select.option value="Card">
-                                Card
-                            </flux:select.option>
-
-                            <flux:select.option value="Bank Transfer">
-                                Bank Transfer
-                            </flux:select.option>
-                        </flux:select>
-                    </flux:field>
-
-                    <flux:field>
-                        <flux:label>
-                            Reference Number
-                        </flux:label>
-
-                        <flux:input
-                            x-model="reference_num"
-                            placeholder="Optional"
+                            x-model="customer.id_number"
+                            placeholder="Student ID number"
                         />
                     </flux:field>
                 </div>
@@ -906,11 +787,11 @@ new class extends Component
                     <div class="flex items-center justify-between mb-4">
                         <div>
                             <p class="font-medium">
-                                Discount
+                                Price Adjustments
                             </p>
 
                             <p class="text-xs text-zinc-500">
-                                Apply a discount to this transaction.
+                                Configure optional discount and tax for this slip.
                             </p>
                         </div>
 
@@ -919,7 +800,7 @@ new class extends Component
                         </x-wirekit::badge>
                     </div>
 
-                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
                         <flux:field>
                             <flux:label>
                                 Category
@@ -987,72 +868,17 @@ new class extends Component
                                 "
                             />
                         </flux:field>
-                    </div>
-                </div>
 
-                <div class="border border-zinc-200 rounded-xl p-4">
-                    <div class="flex items-center justify-between mb-4">
-                        <div>
-                            <p class="font-medium">
-                                Tax
-                            </p>
-
-                            <p class="text-xs text-zinc-500">
-                                Percentage applied after discount.
-                            </p>
-                        </div>
-                    </div>
-
-                    <flux:field>
-                        <flux:label>
-                            Tax Percentage
-                        </flux:label>
-
-                        <flux:input
-                            type="number"
-                            min="0"
-                            max="100"
-                            step="0.01"
-                            x-model.number="tax"
-                        />
-                    </flux:field>
-                </div>
-
-                <div
-                    class="border border-zinc-200 rounded-xl p-4"
-                    x-show="payment_method === 'Cash'"
-                    x-cloak
-                >
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <flux:field>
-                            <flux:label>
-                                Cash Received
-                            </flux:label>
-
+                            <flux:label>Tax Percentage</flux:label>
                             <flux:input
                                 type="number"
                                 min="0"
+                                max="100"
                                 step="0.01"
-                                x-model.number="cash"
-                                placeholder="0.00"
+                                x-model.number="tax"
                             />
                         </flux:field>
-
-                        <div class="flex flex-col justify-end">
-                            <div class="rounded-lg bg-zinc-50 border border-zinc-200 p-3">
-                                <div class="flex items-center justify-between">
-                                    <span class="text-sm text-zinc-500">
-                                        Change
-                                    </span>
-
-                                    <span class="font-semibold">
-                                        ₱<span
-                                            x-text="Number(change).toFixed(2)"
-                                        ></span>
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
                     </div>
                 </div>
 
