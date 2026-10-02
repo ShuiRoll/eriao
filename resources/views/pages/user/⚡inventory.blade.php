@@ -41,6 +41,8 @@ new class extends Component
 
     public $productDefectiveQuantity = 0;
 
+    public $summary = [];
+
     public string $productStatus = 'available';
 
     public function mount()
